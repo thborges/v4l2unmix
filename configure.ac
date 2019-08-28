@@ -1,0 +1,8 @@
+
+AC_INIT([v4l2unmix], 0.1.0)
+AM_INIT_AUTOMAKE
+AC_PROG_CC
+AC_CONFIG_FILES(Makefile src/Makefile)
+AC_CHECK_HEADER([linux/videodev2.h])
+AC_OUTPUT
+
