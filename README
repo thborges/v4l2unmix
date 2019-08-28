@@ -6,5 +6,5 @@ How to use:
 3) For now, change the parameters at the top of src/v4l2unmixer.c, to conform with your desired setup
 
 4) Run as root: modprobe v4l2loopback devices=x, where x equals to the number of inputs
-5) Run v4l2unmixer. It should start reading frames at the input device and unmixing it on de output loopback devices.
+5) Run v4l2unmixer. It should start reading frames at the input device and unmixing it on the output loopback devices.
 
