@@ -1,0 +1,10 @@
+This is an utilitary program that split a V4L2 device with multiple inputs (or channels) into a set of v4l2loopback devices. Using it, you can increase the FPS of surveilance systems such as Motion, that uses a generic round robin algorithm to grab images from such devices.
+
+How to use:
+1) You should have your video card installed and available as a device, such as /dev/video0
+2) Install v4l2loopback
+3) For now, change the parameters at the top of src/v4l2unmixer.c, to conform with your desired setup
+
+4) Run as root: modprobe v4l2loopback devices=x, where x equals to the number of inputs
+5) Run v4l2unmixer. It should start reading frames at the input device and unmixing it on de output loopback devices.
+

@@ -10,6 +10,9 @@
 #include <assert.h>
 #include <time.h>
 
+#include <pthread.h>
+#include <semaphore.h>
+
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
@@ -66,15 +69,51 @@ static int xioctl(int fh, int request, void *arg) {
 	return r;
 }
 
+struct image_buff {
+	int input;
+	void *buf;
+	int length;
+};
+
+#define IMAGE_BUFF_SIZE 10
+struct image_buff images[IMAGE_BUFF_SIZE];
+int circ_post = 0;
+int circ_get = 0;
+sem_t images_semaphore;
+
+static void *write_images(void *void_ptr) {
+
+	for(;;) {
+		sem_wait(&images_semaphore);
+
+		int input = images[circ_get].input;
+		int length = images[circ_get].length;
+		unsigned int w = write(output_fds[input], images[circ_get].buf, length);
+		if (w != length) {
+			fprintf(stderr, "Unable to write frame to output %d: %u bytes to write, %u written.\n", input,
+				length, w);
+			exit(EXIT_FAILURE);
+		}
+
+		circ_get = (circ_get + 1) % IMAGE_BUFF_SIZE;
+	};
+}
+
 static void process_image(int input, const void *buf, unsigned int length) {
 
-	unsigned int w = write(output_fds[input], buf, length);
-	if (w != length) {
-		fprintf(stderr, "Unable to write frame to output %d: %u bytes to write, %u written.\n", input,
-			length, w);
-		exit(EXIT_FAILURE);
-	}
-	//fprintf(stderr, "%d", input);
+	int valp = IMAGE_BUFF_SIZE;
+	do {
+		sem_getvalue(&images_semaphore, &valp);
+		if (valp >= IMAGE_BUFF_SIZE)
+			fprintf(stderr, "waiting for buff space! %d.\n", valp);
+	} while (valp >= IMAGE_BUFF_SIZE);
+	
+	images[circ_post].input = input;
+	images[circ_post].length = length;
+	memcpy(images[circ_post].buf, buf, length);
+	sem_post(&images_semaphore);
+
+	circ_post = (circ_post + 1) % IMAGE_BUFF_SIZE;
 }
 
 int read_frame(int current_input) {
@@ -87,6 +126,7 @@ int read_frame(int current_input) {
 	if (-1 == xioctl(input_fd, VIDIOC_DQBUF, &buf)) {
 		switch (errno) {
 			case EAGAIN:
+				printf("again\n");
 				return 0;
 
 			case EIO:
@@ -289,7 +329,8 @@ static void open_device(int *dfd, char *dev_name)
 		exit(EXIT_FAILURE);
 	}
 
-	*dfd = open(dev_name, O_RDWR | O_NONBLOCK, 0);
+	//*dfd = open(dev_name, O_RDWR | O_NONBLOCK, 0);
+	*dfd = open(dev_name, O_RDWR, 0);
 
 	if (-1 == *dfd) {
 		fprintf(stderr, "Cannot open '%s': %d, %s\\n",
@@ -352,8 +393,17 @@ void stop_capturing() {
 int main(int argc, char *argv[]) {
 
 
+	sem_init(&images_semaphore, 0, 0);
+
+	pthread_t writter_thread;
+	if (pthread_create(&writter_thread, NULL, write_images, NULL))
+		errno_exit("pthread_create");
+
 	open_device(&input_fd, input_dev_name);
 	init_input_device();
+
+	for(int i = 0; i < IMAGE_BUFF_SIZE; i++)
+		images[i].buf = malloc(frame_size);
 
 	for(int i = 0; i < INPUT_NUM; i++)
 		open_device(&output_fds[i], output_dev_names[i]);
@@ -368,6 +418,7 @@ int main(int argc, char *argv[]) {
 	for(int i = 0; i < INPUT_NUM; i++)
 		close_device(&output_fds[i]);
 
+	//pthread_join(writter_thread, NULL);
 	return 0;
 }
 

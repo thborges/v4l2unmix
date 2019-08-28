@@ -1,5 +1,8 @@
+AM_LIBS = @PTHREAD_LIBS@ @LIBS@
+AM_CFLAGS = @CFLAGS@ @PTHREAD_CFLAGS@
+AM_CC = @PTHREAD_CC@
+
 bin_PROGRAMS = v4l2unmix
 
-AM_CFLAGS = 
 v4l2unmix_SOURCES = v4l2unmix.c
-v4l2unmix_LDADD = 
+

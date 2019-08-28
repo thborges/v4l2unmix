@@ -4,5 +4,6 @@ AM_INIT_AUTOMAKE
 AC_PROG_CC
 AC_CONFIG_FILES(Makefile src/Makefile)
 AC_CHECK_HEADER([linux/videodev2.h])
+AX_PTHREAD
 AC_OUTPUT
 
