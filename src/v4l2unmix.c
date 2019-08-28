@@ -32,7 +32,7 @@ static char *output_dev_names[INPUT_NUM] = {
 #define VIDEO_HEIGHT 480
 #define VIDEO_PIX_FMT V4L2_PIX_FMT_YUV420
 #define VIDEO_FIELD V4L2_FIELD_INTERLACED
-#define VIDEO_REQ_BUF_COUNT 10
+#define VIDEO_REQ_BUF_COUNT 2
 
 #define MSTRE(s) #s
 #define MSTR(s) MSTRE(s)
@@ -77,12 +77,10 @@ static void process_image(int input, const void *buf, unsigned int length) {
 	//fprintf(stderr, "%d", input);
 }
 
-static int read_frame(struct timespec cur_input_begin, struct timespec cur_input_end, 
-	int current_input, int fid) {
+int read_frame(int current_input) {
 
-		struct v4l2_buffer buf;
+	struct v4l2_buffer buf;
 	CLEAR(buf);
-
 	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	buf.memory = V4L2_MEMORY_MMAP;
 
@@ -101,23 +99,8 @@ static int read_frame(struct timespec cur_input_begin, struct timespec cur_input
 	}
 
 	assert(buf.index < VIDEO_REQ_BUF_COUNT);
-
-	int input;
-	// the buf was captured after switching to the current input?
-	if (buf.timestamp.tv_sec >= cur_input_end.tv_sec ||
-	   (buf.timestamp.tv_sec == cur_input_end.tv_sec &&
-		buf.timestamp.tv_usec >= (cur_input_end.tv_nsec/1000)))
-		input = current_input;
-	else
-		input = (INPUT_NUM+current_input-1)%INPUT_NUM;
-
-	if (buf.bytesused == frame_size && fid > 0)
-		process_image(input, buffers[buf.index].start, buf.bytesused);
-
-	if (-1 == xioctl(input_fd, VIDIOC_QBUF, &buf))
-        errno_exit("VIDIOC_QBUF");
-
-	return input == current_input;	
+	process_image(current_input, buffers[buf.index].start, buf.bytesused);
+	return 1;
 }
 
 static void init_mmap(void) {
@@ -164,10 +147,10 @@ static void init_mmap(void) {
 		buffers[bidx].length = buf.length;
 		buffers[bidx].start =
 			mmap(NULL /* start anywhere */,
-			      buf.length,
-			      PROT_READ | PROT_WRITE /* required */,
-			      MAP_SHARED /* recommended */,
-			      input_fd, buf.m.offset);
+				  buf.length,
+				  PROT_READ | PROT_WRITE /* required */,
+				  MAP_SHARED /* recommended */,
+				  input_fd, buf.m.offset);
 
 		if (MAP_FAILED == buffers[bidx].start)
 			errno_exit("mmap");
@@ -320,47 +303,41 @@ static void main_loop() {
 	struct timeval tv;
 	int r;
 
+	int last_i = -1;
 	while (1) {
 		// read frames for each input
 		for(int i = 0; i < INPUT_NUM; i++) {
+			// read a number of frames before changing input
+			if (last_i != -1) {
+				for(int f = 0; f < VIDEO_REQ_BUF_COUNT; f++)
+					while (!read_frame(last_i));
+			}
 
 			// select input
-			static struct timespec s_input_begin;
-			clock_gettime(CLOCK_MONOTONIC, &s_input_begin);
-			
 			unsigned int idx = inputs[i];
 			if (-1 == xioctl(input_fd, VIDIOC_S_INPUT, &idx)) {
 				fprintf(stderr, "Unable to select input %u.\n", idx);
 				exit(EXIT_FAILURE);
 			}
 
-			static struct timespec s_input_end;
-			clock_gettime(CLOCK_MONOTONIC, &s_input_end);
+			// enqueue buffers after input selection
+			for (int f = 0; f < VIDEO_REQ_BUF_COUNT; ++f) {
+				struct v4l2_buffer buf;
+				CLEAR(buf);
+				buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+				buf.memory = V4L2_MEMORY_MMAP;
+				buf.index = f;
 
-			int was_cur_input = 0;
-			int min_frames = 3;
-			int f = 0;
-			do { // while frames are from last input
-				was_cur_input = read_frame(s_input_begin, s_input_end, i, f);
-				if (was_cur_input)
-					f++;
-			} while (!was_cur_input || f < min_frames);
+				if (-1 == xioctl(input_fd, VIDIOC_QBUF, &buf))
+					errno_exit("VIDIOC_QBUF");
+			}
+
+			last_i = i;
 		}
 	}
 }
 
 void start_capturing() {
-	for (int i = 0; i < VIDEO_REQ_BUF_COUNT; ++i) {
-		struct v4l2_buffer buf;
-
-		CLEAR(buf);
-		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		buf.memory = V4L2_MEMORY_MMAP;
-		buf.index = i;
-
-		if (-1 == xioctl(input_fd, VIDIOC_QBUF, &buf))
-				errno_exit("VIDIOC_QBUF");
-	}
 	enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	if (-1 == xioctl(input_fd, VIDIOC_STREAMON, &type))
 			errno_exit("VIDIOC_STREAMON");
