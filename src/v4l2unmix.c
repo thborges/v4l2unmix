@@ -303,6 +303,15 @@ static void init_input_device(void) {
 		frame_size = fmt.fmt.pix.sizeimage;
 	}
 
+	// set framerate
+	struct v4l2_streamparm parm;
+	parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	parm.parm.capture.timeperframe.numerator = 1;
+	parm.parm.capture.timeperframe.denominator = 50;
+	if (-1 == xioctl(input_fd, VIDIOC_S_PARM, &parm)) {
+		fprintf(stderr, "Unable to set desired framerate %d.\n", 50);
+	}
+
 	init_mmap();
 }
 
